@@ -816,7 +816,7 @@ sysctl -w net.core.wmem_max=16777216
 wget -O /usr/bin/badvpn-udpgw "https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/badvpn/badvpn-udpgw64"
 chmod +x /usr/bin/badvpn-udpgw
 } &>/dev/null
-}
+
 
 installBBR() {
   echo "Enabling BBR..."
@@ -954,6 +954,7 @@ install_firewall_kvm
 install_stunnel
 install_rclocal
 start_service
+
 
 
 
