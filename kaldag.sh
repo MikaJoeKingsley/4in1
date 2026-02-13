@@ -873,36 +873,27 @@ installBBR() {
 #	Finalized: Firenet Developer
 #====================================================
 
-install_rclocal(){
+install_rclocal() {
   {
-  sed -i 's/Listen 80/Listen 81/g' /etc/apache2/ports.conf
-    systemctl restart apache2
-    
-    sudo systemctl restart stunnel4
-    sudo systemctl restart hysteria-server
-    if systemctl list-unit-files | grep -q '^openvpn-server@'; then
-  systemctl enable --now openvpn-server@server.service
-  systemctl enable --now openvpn-server@server2.service
-else
-  systemctl enable --now openvpn@server.service
-  systemctl enable --now openvpn@server2.service
-fi 
-    
-    echo "[Unit]
-Description=dexter service
-Documentation=http://mediatekvpn.com
+    # Restart apache only if installed
+    if [ -f /etc/apache2/ports.conf ]; then
+      sed -i 's/Listen 80/Listen 81/g' /etc/apache2/ports.conf 2>/dev/null || true
+      systemctl restart apache2 2>/dev/null || true
+    fi
 
-[Service]
-Type=oneshot
-ExecStart=/bin/bash /etc/rc.local
-RemainAfterExit=yes
+    systemctl restart stunnel4 2>/dev/null || true
+    systemctl restart hysteria-server 2>/dev/null || true
 
-[Install]
-WantedBy=multi-user.target" >> /etc/systemd/system/dexter.service
-rm -rf /etc/rc.local
-cat > /etc/rc.local <<'RC'
+    # Detect correct OpenVPN unit prefix (for use NOW, not only in rc.local)
+    OPENVPN_UNIT_PREFIX="openvpn@"
+    if systemctl list-unit-files 2>/dev/null | grep -q '^openvpn-server@'; then
+      OPENVPN_UNIT_PREFIX="openvpn-server@"
+    fi
+
+    # Write rc.local
+    rm -f /etc/rc.local
+    cat > /etc/rc.local <<'RC'
 #!/bin/sh -e
-# restore firewall
 iptables-restore < /etc/iptables_rules.v4 2>/dev/null || true
 ip6tables-restore < /etc/iptables_rules.v6 2>/dev/null || true
 sysctl --system >/dev/null 2>&1 || sysctl -p >/dev/null 2>&1 || true
@@ -916,7 +907,6 @@ fi
 systemctl restart ${OPENVPN_UNIT_PREFIX}server.service 2>/dev/null || true
 systemctl restart ${OPENVPN_UNIT_PREFIX}server2.service 2>/dev/null || true
 
-# start socks/ws if present
 command -v screen >/dev/null 2>&1 && {
   [ -x /etc/socks.py ] && screen -dmS socks python3 /etc/socks.py 80
   [ -x /etc/socks-ssh.py ] && screen -dmS socks_ssh python3 /etc/socks-ssh.py 8000
@@ -929,34 +919,49 @@ command -v screen >/dev/null 2>&1 && {
 [ -x /etc/.monitor ] && bash /etc/.monitor aio >/dev/null 2>&1 || true
 exit 0
 RC
-chmod +x /etc/rc.local
-systemctl daemon-reload
-systemctl restart ${OPENVPN_UNIT_PREFIX}server.service
-systemctl restart ${OPENVPN_UNIT_PREFIX}server2.service
-systemctl enable hysteria-server.service
-systemctl restart hysteria-server.service
-systemctl list-unit-files | grep openvpn
-sudo systemctl start dexter.service
-    
-echo "Made with love by: MediatekVpn Developer... " >> /root/.web/index.php
+    chmod +x /etc/rc.local
 
-echo "tcp_port=TCP_PORT
-udp_port=UDP_PORT
+    # Create dexter.service (overwrite, no duplicates)
+    cat > /etc/systemd/system/dexter.service <<'UNIT'
+[Unit]
+Description=dexter service
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /etc/rc.local
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+    systemctl daemon-reload
+    systemctl enable --now dexter.service 2>/dev/null || true
+
+    # Start OpenVPN now (correct prefix)
+    systemctl enable --now ${OPENVPN_UNIT_PREFIX}server.service 2>/dev/null || true
+    systemctl enable --now ${OPENVPN_UNIT_PREFIX}server2.service 2>/dev/null || true
+
+    systemctl enable --now hysteria-server.service 2>/dev/null || true
+
+    # Write ports file cleanly
+    cat > /root/.ports <<EOF
+tcp_port=$PORT_TCP
+udp_port=$PORT_UDP
 socket_port=80
 squid_port=8080
 hysteria_port=5666
 ssh_port=22
 dropbear_port=442
 slowdns_port=2222
-tcp_ssl_port=PORT_SSL
-udp_ssl_port=444" >> /root/.ports
+tcp_ssl_port=$PORT_SSL
+udp_ssl_port=444
+EOF
 
-sed -i "s|TCP_PORT|$PORT_TCP|g" /root/.ports
-sed -i "s|UDP_PORT|$PORT_UDP|g" /root/.ports
-sed -i "s|PORT_SSL|$PORT_SSL|g" /root/.ports
-  }&>/dev/null
+    echo "Made with love by: MediatekVpn Developer..." >> /root/.web/index.php 2>/dev/null || true
+  } &>/dev/null
 }
-
 start_service () {
 clear
 echo 'Starting..'
@@ -994,6 +999,7 @@ install_firewall_kvm
 install_stunnel
 install_rclocal
 start_service
+
 
 
 
