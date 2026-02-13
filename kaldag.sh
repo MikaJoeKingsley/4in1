@@ -15,43 +15,39 @@ NS="$(cat /root/ns.txt)"
 
 timedatectl set-timezone Asia/Manila
 
-install_require () {
-clear
-echo 'Installing dependencies.'
-{
-# Turn off various firewalls
-systemctl stop firewalld
-systemctl disable firewalld
-systemctl stop nftables
-systemctl disable nftables
-systemctl stop ufw
-systemctl disable ufw
-  
-export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-export DEBIAN_FRONTEND=noninteractive
+install_require() {
+  clear
+  echo "Installing dependencies..."
+  {
+    export DEBIAN_FRONTEND=noninteractive
+    export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-apt update
-apt install -y python3 python3-pip python3-pam
-apt install -y lsof tar systemd dbus git
-apt install -y gnupg2 ca-certificates lsb-release debian-archive-keyring socat
-apt install -y curl wget cron
-apt install -y iptables sudo
-apt install -y openvpn netcat httpie php neofetch vnstat
-apt install -y screen squid stunnel4 dropbear gnutls-bin
-apt install -y dos2unix nano unzip jq virt-what net-tools
-apt install -y mlocate dh-make libaudit-dev build-essential fail2ban
+    # stop common firewalls (ignore if not installed)
+    systemctl stop firewalld 2>/dev/null || true
+    systemctl disable firewalld 2>/dev/null || true
+    systemctl stop nftables 2>/dev/null || true
+    systemctl disable nftables 2>/dev/null || true
+    systemctl stop ufw 2>/dev/null || true
+    systemctl disable ufw 2>/dev/null || true
 
-touch /var/spool/cron/crontabs/root && chmod 600 /var/spool/cron/crontabs/root
-systemctl start cron && systemctl enable cron
+    apt-get update -y
 
-# Prevent the default bin directory of xray in some systems from missing
-mkdir /usr/local/bin >/dev/null 2>&1
-mkdir /usr/local/var >/dev/null 2>&1
-mkdir /usr/local/var/run >/dev/null 2>&1
-mkdir -m 777 /root/.web
-clear
-}&>/dev/null
-clear
+    apt-get install -y \
+      python3 python3-pip python3-pam \
+      lsof tar systemd dbus git \
+      gnupg2 ca-certificates lsb-release debian-archive-keyring socat \
+      curl wget cron iptables sudo \
+      openvpn netcat httpie php neofetch vnstat \
+      screen stunnel4 dropbear gnutls-bin \
+      dos2unix nano unzip jq virt-what net-tools \
+      mlocate dh-make libaudit-dev build-essential fail2ban
+
+    # enable cron (Ubuntu uses cron.service too)
+    systemctl enable --now cron 2>/dev/null || service cron start 2>/dev/null || true
+
+    mkdir -p /usr/local/bin /usr/local/var /usr/local/var/run
+    mkdir -p -m 777 /root/.web
+  } &>/dev/null
 }
 
 install_squid() {
@@ -594,7 +590,7 @@ accept = 446
 sed -i "s|PORT_TCP|$PORT_TCP|g" /etc/stunnel/stunnel.conf
 sed -i "s|PORT_UDP|$PORT_UDP|g" /etc/stunnel/stunnel.conf
 sed -i "s|PORT_SSL|$PORT_SSL|g" /etc/stunnel/stunnel.conf
-cd /etc/default && rm stunnel4 && rm dropbear
+rm -f /etc/default/stunnel4 /etc/default/dropbear
 
 echo 'ENABLED=1
 FILES="/etc/stunnel/*.conf"
@@ -613,7 +609,8 @@ chmod 755 stunnel4 && chmod 755 dropbear
 echo "/bin/false" >> /etc/shells
 
 #//wget -O /etc/banner #"https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/banner/SshBanner"
-chmod +x /etc/banner
+touch /etc/banner
+chmod 644 /etc/banner
 
 sudo service stunnel4 restart
 sudo service dropbear restart
@@ -650,18 +647,21 @@ mkdir -m 777 $DNSCONFIG
 
 # BUILD DNSTT SERVER
 mkdir -p "$DNSDIR/dnstt/dnstt-server" "$DNSDIR/dnstt/dnstt-client"
-wget -O dnstt-server "https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/slowdns/dnstt-server"
+
+cd "$DNSDIR/dnstt/dnstt-server" || exit 1
+wget -q -O dnstt-server "https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/slowdns/dnstt-server"
 chmod +x dnstt-server
-wget -O dnstt-client "https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/slowdns/dnstt-client"
+
+cd "$DNSDIR/dnstt/dnstt-client" || exit 1
+wget -q -O dnstt-client "https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/slowdns/dnstt-client"
 chmod +x dnstt-client
 
+cd "$DNSDIR/dnstt/dnstt-server" || exit 1
 ./dnstt-server -gen-key -privkey-file server.key -pubkey-file server.pub
-cp server.key server.pub $DNSCONFIG
-cp dnstt-server $DNSDIR
 
-# BUILD DNSTT CLIENT
-cd $DNSDIR/dnstt/dnstt-client
-cp dnstt-client $DNSDIR
+cp server.key server.pub "$DNSCONFIG/"
+cp "$DNSDIR/dnstt/dnstt-server/dnstt-server" "$DNSDIR/"
+cp "$DNSDIR/dnstt/dnstt-client/dnstt-client" "$DNSDIR/"
 
 #Source
 echo "
@@ -856,14 +856,16 @@ chmod +x /usr/bin/badvpn-udpgw
 }
 
 installBBR() {
-    echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
-    echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
-    sysctl -p
-    
-    apt install -y linux-generic-hwe-20.04
-    grub-set-default 0
-    echo "tcp_bbr" >> /etc/modules-load.d/modules.conf
-    INSTALL_BBR=true
+  echo "Enabling BBR..."
+  {
+    echo "net.core.default_qdisc=fq" > /etc/sysctl.d/99-bbr.conf
+    echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.d/99-bbr.conf
+    sysctl --system >/dev/null 2>&1 || sysctl -p >/dev/null 2>&1 || true
+
+    # Load module if available (ignore errors on kernels that build it in)
+    modprobe tcp_bbr 2>/dev/null || true
+    echo "tcp_bbr" > /etc/modules-load.d/bbr.conf
+  } &>/dev/null
 }
 
 #====================================================
@@ -898,28 +900,36 @@ RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target" >> /etc/systemd/system/dexter.service
 rm -rf /etc/rc.local
-    echo '#!/bin/sh -e
-service ufw stop
-iptables-restore < /etc/iptables_rules.v4
-ip6tables-restore < /etc/iptables_rules.v6
-sysctl -p
-service stunnel4 restart
+cat > /etc/rc.local <<'RC'
+#!/bin/sh -e
+# restore firewall
+iptables-restore < /etc/iptables_rules.v4 2>/dev/null || true
+ip6tables-restore < /etc/iptables_rules.v6 2>/dev/null || true
+sysctl --system >/dev/null 2>&1 || sysctl -p >/dev/null 2>&1 || true
+
+service stunnel4 restart 2>/dev/null || true
+
 OPENVPN_UNIT_PREFIX="openvpn@"
-if systemctl list-unit-files | grep -q '^openvpn-server@'; then
+if systemctl list-unit-files 2>/dev/null | grep -q '^openvpn-server@'; then
   OPENVPN_UNIT_PREFIX="openvpn-server@"
 fi
-systemctl enable dexter.service
-systemctl start dexter.service
-screen -dmS socks python3 /etc/socks.py 80
-screen -dmS socks python3 /etc/socks-ssh.py 8000
-screen -dmS socks python3 /etc/socks-ws-ssh.py 8001
-screen -dmS socks python3 /etc/socks-ws-ssl.py 8002
-ps x | grep 'udpvpn' | grep -v 'grep' || screen -dmS udpvpn /usr/bin/badvpn-udpgw --listen-addr 127.0.0.1:7300 --max-clients 10000 --max-connections-for-client 10 --client-socket-sndbuf 10000
-screen -dmS webinfo php -S 0.0.0.0:5623 -t /root/.web/
-bash /etc/.monitor aio
-exit 0' >> /etc/rc.local
+systemctl restart ${OPENVPN_UNIT_PREFIX}server.service 2>/dev/null || true
+systemctl restart ${OPENVPN_UNIT_PREFIX}server2.service 2>/dev/null || true
 
-sudo chmod +x /etc/rc.local
+# start socks/ws if present
+command -v screen >/dev/null 2>&1 && {
+  [ -x /etc/socks.py ] && screen -dmS socks python3 /etc/socks.py 80
+  [ -x /etc/socks-ssh.py ] && screen -dmS socks_ssh python3 /etc/socks-ssh.py 8000
+  [ -x /etc/socks-ws-ssh.py ] && screen -dmS ws_ssh python3 /etc/socks-ws-ssh.py 8001
+  [ -x /etc/socks-ws-ssl.py ] && screen -dmS ws_ssl python3 /etc/socks-ws-ssl.py 8002
+  [ -x /usr/bin/badvpn-udpgw ] && screen -dmS udpvpn /usr/bin/badvpn-udpgw --listen-addr 127.0.0.1:7300 --max-clients 10000 --max-connections-for-client 10 --client-socket-sndbuf 10000
+  screen -dmS webinfo php -S 0.0.0.0:5623 -t /root/.web/
+}
+
+[ -x /etc/.monitor ] && bash /etc/.monitor aio >/dev/null 2>&1 || true
+exit 0
+RC
+chmod +x /etc/rc.local
 systemctl daemon-reload
 systemctl restart ${OPENVPN_UNIT_PREFIX}server.service
 systemctl restart ${OPENVPN_UNIT_PREFIX}server2.service
@@ -984,6 +994,7 @@ install_firewall_kvm
 install_stunnel
 install_rclocal
 start_service
+
 
 
 
