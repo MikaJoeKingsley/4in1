@@ -816,56 +816,20 @@ installBBR() {
 #	Finalized: Firenet Developer
 #====================================================
 
-install_rclocal() {
+install_rclocal(){
   {
-    # Restart apache only if installed
-    if [ -f /etc/apache2/ports.conf ]; then
-      sed -i 's/Listen 80/Listen 81/g' /etc/apache2/ports.conf 2>/dev/null || true
-      systemctl restart apache2 2>/dev/null || true
-    fi
-
-    # Detect correct OpenVPN unit prefix (for use NOW, not only in rc.local)
-    OPENVPN_UNIT_PREFIX="openvpn@"
-    if systemctl list-unit-files 2>/dev/null | grep -q '^openvpn-server@'; then
-      OPENVPN_UNIT_PREFIX="openvpn-server@"
-    fi
-
-    # Write rc.local
-    rm -f /etc/rc.local
-    cat > /etc/rc.local <<'RC'
-#!/bin/sh -e
-iptables-restore < /etc/iptables_rules.v4 2>/dev/null || true
-ip6tables-restore < /etc/iptables_rules.v6 2>/dev/null || true
-sysctl --system >/dev/null 2>&1 || sysctl -p >/dev/null 2>&1 || true
-
-service stunnel4 restart 2>/dev/null || true
-
-OPENVPN_UNIT_PREFIX="openvpn@"
-if systemctl list-unit-files 2>/dev/null | grep -q '^openvpn-server@'; then
-  OPENVPN_UNIT_PREFIX="openvpn-server@"
-fi
-systemctl restart ${OPENVPN_UNIT_PREFIX}server.service 2>/dev/null || true
-systemctl restart ${OPENVPN_UNIT_PREFIX}server2.service 2>/dev/null || true
-
-command -v screen >/dev/null 2>&1 && {
-  [ -x /etc/socks.py ] && screen -dmS socks python3 /etc/socks.py 80
-  [ -x /etc/socks-ssh.py ] && screen -dmS socks_ssh python3 /etc/socks-ssh.py 8000
-  [ -x /etc/socks-ws-ssh.py ] && screen -dmS ws_ssh python3 /etc/socks-ws-ssh.py 8001
-  [ -x /etc/socks-ws-ssl.py ] && screen -dmS ws_ssl python3 /etc/socks-ws-ssl.py 8002
-  [ -x /usr/bin/badvpn-udpgw ] && screen -dmS udpvpn /usr/bin/badvpn-udpgw --listen-addr 127.0.0.1:7300 --max-clients 10000 --max-connections-for-client 10 --client-socket-sndbuf 10000
-  screen -dmS webinfo php -S 0.0.0.0:5623 -t /root/.web/
-}
-
-[ -x /etc/.monitor ] && bash /etc/.monitor aio >/dev/null 2>&1 || true
-exit 0
-RC
-    chmod +x /etc/rc.local
-
-    # Create dexter.service (overwrite, no duplicates)
-    cat > /etc/systemd/system/dexter.service <<'UNIT'
-[Unit]
+  sed -i 's/Listen 80/Listen 81/g' /etc/apache2/ports.conf
+    systemctl restart apache2
+    
+    sudo systemctl restart stunnel4
+    sudo systemctl enable openvpn@server.service
+    sudo systemctl start openvpn@server.service
+    sudo systemctl enable openvpn@server2.service
+    sudo systemctl start openvpn@server2.service    
+    
+    echo "[Unit]
 Description=dexter service
-After=network.target
+Documentation=http://mediatekvpn.com
 
 [Service]
 Type=oneshot
@@ -873,32 +837,49 @@ ExecStart=/bin/bash /etc/rc.local
 RemainAfterExit=yes
 
 [Install]
-WantedBy=multi-user.target
-UNIT
+WantedBy=multi-user.target" >> /etc/systemd/system/dexter.service
+rm -rf /etc/rc.local
+    echo '#!/bin/sh -e
+service ufw stop
+iptables-restore < /etc/iptables_rules.v4
+ip6tables-restore < /etc/iptables_rules.v6
+sysctl -p
+service stunnel4 restart
+systemctl restart openvpn@server.service
+systemctl restart openvpn@server2.service
+screen -dmS socks python /etc/socks.py 80
+screen -dmS socks python /etc/socks-ssh.py 8000
+screen -dmS socks python /etc/socks-ws-ssh.py 8001
+screen -dmS socks python /etc/socks-ws-ssl.py 8002
+ps x | grep 'udpvpn' | grep -v 'grep' || screen -dmS udpvpn /usr/bin/badvpn-udpgw --listen-addr 127.0.0.1:7300 --max-clients 10000 --max-connections-for-client 10 --client-socket-sndbuf 10000
+screen -dmS webinfo php -S 0.0.0.0:5623 -t /root/.web/
+bash /etc/.monitor aio
+exit 0' >> /etc/rc.local
 
-    systemctl daemon-reload
-    systemctl enable --now dexter.service 2>/dev/null || true
+sudo chmod +x /etc/rc.local
+systemctl daemon-reload
+sudo systemctl enable dexter
+sudo systemctl start dexter.service
+    
+echo "Made with love by: MediatekVpn Developer... " >> /root/.web/index.php
 
-    # Start OpenVPN now (correct prefix)
-    systemctl enable --now ${OPENVPN_UNIT_PREFIX}server.service 2>/dev/null || true
-    systemctl enable --now ${OPENVPN_UNIT_PREFIX}server2.service 2>/dev/null || true
-
-    # Write ports file cleanly
-    cat > /root/.ports <<EOF
-tcp_port=$PORT_TCP
-udp_port=$PORT_UDP
+echo "tcp_port=TCP_PORT
+udp_port=UDP_PORT
 socket_port=80
 squid_port=8080
+hysteria_port=5666
 ssh_port=22
 dropbear_port=442
 slowdns_port=2222
-tcp_ssl_port=$PORT_SSL
-udp_ssl_port=444
-EOF
+tcp_ssl_port=PORT_SSL
+udp_ssl_port=444" >> /root/.ports
 
-    echo "Made with love by: MediatekVpn Developer..." >> /root/.web/index.php 2>/dev/null || true
-  } &>/dev/null
+sed -i "s|TCP_PORT|$PORT_TCP|g" /root/.ports
+sed -i "s|UDP_PORT|$PORT_UDP|g" /root/.ports
+sed -i "s|PORT_SSL|$PORT_SSL|g" /root/.ports
+  }&>/dev/null
 }
+
 start_service () {
 clear
 echo 'Starting..'
@@ -906,6 +887,7 @@ echo 'Starting..'
 
 sudo crontab -l | { echo "* * * * * pgrep -x stunnel4 >/dev/null && echo 'GOOD' || /etc/init.d/stunnel4 restart
 * * * * * /bin/bash /etc/.ws >/dev/null 2>&1
+* * * * * /bin/bash /etc/.hysteria >/dev/null 2>&1
 * * * * * /bin/bash /etc/.monitor aio >/dev/null 2>&1"; } | crontab -
 sudo systemctl restart cron
 } &>/dev/null
@@ -934,7 +916,6 @@ install_firewall_kvm
 install_stunnel
 install_rclocal
 start_service
-
 
 
 
