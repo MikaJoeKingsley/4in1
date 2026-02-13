@@ -480,7 +480,6 @@ net.ipv4.conf.${server_interface}.rp_filter=0
 EOF
   sysctl --system >/dev/null 2>&1 || true
 
-  # ---- apply firewall rules ----
   {
     export DEBIAN_FRONTEND=noninteractive
 
@@ -501,39 +500,36 @@ EOF
     fi
     [ -z "$SIP" ] && SIP="0.0.0.0"
 
-    # Ensure iptables tools exist
     apt-get update -y >/dev/null 2>&1 || true
     apt-get install -y iptables iptables-persistent netfilter-persistent >/dev/null 2>&1 || true
 
-    # Clear existing rules (only filter + nat like your original)
+    # Clear existing rules
     iptables -F
     iptables -t nat -F
     ip6tables -F 2>/dev/null || true
     ip6tables -t nat -F 2>/dev/null || true
 
-    # ---- Your original rules (kept) ----
-    iptables -t nat -A PREROUTING -i "$IFACE" -p udp --dport 10000:50000 -j DNAT --to-destination :5666
-
+    # ---- NAT for OpenVPN networks (keep) ----
     iptables -t nat -A POSTROUTING -s 10.20.0.0/22 -o "$IFACE" -j MASQUERADE
     iptables -t nat -A POSTROUTING -s 10.20.0.0/22 -o "$IFACE" -j SNAT --to-source "$SIP"
 
     iptables -t nat -A POSTROUTING -s 10.30.0.0/22 -o "$IFACE" -j MASQUERADE
     iptables -t nat -A POSTROUTING -s 10.30.0.0/22 -o "$IFACE" -j SNAT --to-source "$SIP"
 
+    # ---- Anti-spam UDP new connections (keep) ----
     iptables -t filter -A INPUT -p udp --dport 20100:20900 -m state --state NEW \
       -m recent --update --seconds 30 --hitcount 10 --name DEFAULT --mask 255.255.255.255 --rsource -j DROP
     iptables -t filter -A INPUT -p udp --dport 20100:20900 -m state --state NEW \
       -m recent --set --name DEFAULT --mask 255.255.255.255 --rsource
 
-    # Allow SlowDNS UDP port (5300) and redirect inbound UDP/53 -> 5300
+    # ---- SlowDNS (keep) ----
     iptables -I INPUT -p udp --dport 5300 -j ACCEPT
     iptables -t nat -I PREROUTING -i "$IFACE" -p udp --dport 53 -j REDIRECT --to-ports 5300
 
-    # IPv6 (best-effort; ok if VPS has no v6)
     ip6tables -I INPUT -p udp --dport 5300 -j ACCEPT 2>/dev/null || true
     ip6tables -t nat -I PREROUTING -i "$IFACE" -p udp --dport 53 -j REDIRECT --to-ports 5300 2>/dev/null || true
 
-    # ---- Save rules (Debian 12 standard paths) ----
+    # Save rules
     mkdir -p /etc/iptables
     iptables-save  > /etc/iptables/rules.v4 2>/dev/null || iptables-save  > /etc/iptables_rules.v4
     ip6tables-save > /etc/iptables/rules.v6 2>/dev/null || ip6tables-save > /etc/iptables_rules.v6
@@ -541,13 +537,13 @@ EOF
     systemctl enable --now netfilter-persistent >/dev/null 2>&1 || true
     systemctl restart netfilter-persistent >/dev/null 2>&1 || true
 
-    # ---- Max open files (clean replace) ----
+    # ---- Max open files ----
     sed -i '/^\*\s\+soft\s\+nofile\s\+[0-9]\+/d' /etc/security/limits.conf
     sed -i '/^\*\s\+hard\s\+nofile\s\+[0-9]\+/d' /etc/security/limits.conf
     echo '* soft nofile 65536' >> /etc/security/limits.conf
     echo '* hard nofile 65536' >> /etc/security/limits.conf
 
-    echo "✅ iptables configured (iface=$IFACE ip=$SIP)"
+    echo "✅ iptables configured (NO hysteria) (iface=$IFACE ip=$SIP)"
   } >/root/install-firewall.log 2>&1
 }
 
@@ -816,7 +812,7 @@ sysctl -w net.core.wmem_max=16777216
 wget -O /usr/bin/badvpn-udpgw "https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/badvpn/badvpn-udpgw64"
 chmod +x /usr/bin/badvpn-udpgw
 } &>/dev/null
-
+}
 
 installBBR() {
   echo "Enabling BBR..."
@@ -954,6 +950,7 @@ install_firewall_kvm
 install_stunnel
 install_rclocal
 start_service
+
 
 
 
