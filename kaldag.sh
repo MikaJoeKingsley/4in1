@@ -15,10 +15,6 @@ NS="$(cat /root/ns.txt)"
 
 timedatectl set-timezone Asia/Manila
 
-if [[ $(grep "nogroup" /etc/group) ]]; then
-    cert_group="nogroup"
-fi
-
 install_require () {
 clear
 echo 'Installing dependencies.'
@@ -38,10 +34,10 @@ apt update
 apt install -y python3 python3-pip python3-pam
 apt install -y lsof tar systemd dbus git
 apt install -y gnupg2 ca-certificates lsb-release debian-archive-keyring socat
-apt install -y curl wget cron python-minimal libpython-stdlib
+apt install -y curl wget cron
 apt install -y iptables sudo
 apt install -y openvpn netcat httpie php neofetch vnstat
-apt install -y screen squid stunnel4 dropbear gnutls-bin python
+apt install -y screen squid stunnel4 dropbear gnutls-bin
 apt install -y dos2unix nano unzip jq virt-what net-tools
 apt install -y mlocate dh-make libaudit-dev build-essential fail2ban
 
@@ -129,7 +125,7 @@ wget 'https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/soc
 dos2unix /etc/socks-ssh.py
 chmod +x /etc/socks-ssh.py
 
-wget 'https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/websocket/socks-ws-ssh.py
+wget 'https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/websocket/socks-ws-ssh.py' -O /etc/socks-ws-ssh.py
 dos2unix /etc/socks-ws-ssh.py
 chmod +x /etc/socks-ws-ssh.py
 
@@ -266,21 +262,27 @@ EOM
 # OpenVPN auth via Linux users (PAM)
 # OpenVPN passes credentials in env vars: username/password
 python3 - <<'PY'
-import os, sys
-try:
-    import pam
-except Exception:
-    sys.exit(1)
+import os, sys, pwd
+import pam
 
-u = os.environ.get("username","")
+u = os.environ.get("username","").strip()
 p = os.environ.get("password","")
 
 if not u or not p:
     sys.exit(1)
 
+# Must exist as a local user
+try:
+    pw = pwd.getpwnam(u)
+except KeyError:
+    sys.exit(1)
+
+# Block system users (uid < 1000)
+if pw.pw_uid < 1000:
+    sys.exit(1)
+
 pamh = pam.pam()
-ok = pamh.authenticate(u, p, service='login')
-sys.exit(0 if ok else 1)
+sys.exit(0 if pamh.authenticate(u, p, service='login') else 1)
 PY
 EOM
 
@@ -418,14 +420,17 @@ dos2unix /etc/openvpn/login/auth_vpn
 dos2unix /etc/openvpn/login/connect.sh
 dos2unix /etc/openvpn/login/disconnect.sh
 
-chmod 777 -R /etc/openvpn/
+chmod 750 -R /etc/openvpn
+chmod 750 /etc/openvpn/login
+chmod 600 /etc/openvpn/easy-rsa/keys/server.key
+chmod 644 /etc/openvpn/easy-rsa/keys/*.crt
 chmod 755 /etc/openvpn/server.conf
 chmod 755 /etc/openvpn/server2.conf
 chmod 755 /etc/openvpn/login/connect.sh
 chmod 755 /etc/openvpn/login/disconnect.sh
 chmod 755 /etc/openvpn/login/config.sh
 chmod 755 /etc/openvpn/login/auth_vpn
-chmod 755 /etc/hysteria/.auth.sh
+chmod 755 /etc/hysteria/
 }&>/dev/null
 }
 
@@ -793,6 +798,9 @@ AUTH="$2"
 USERNAME="${AUTH%%:*}"
 PASSWORD="${AUTH#*:}"
 
+export HUSER="$USERNAME"
+export HPASS="$PASSWORD"
+
 python3 - <<'PY'
 import os, sys
 import pam
@@ -940,4 +948,5 @@ install_firewall_kvm
 install_stunnel
 install_rclocal
 start_service
+
 
