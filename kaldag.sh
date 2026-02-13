@@ -660,99 +660,89 @@ sudo service dropbear restart
 #}
 
 #====================================================
-#	Installing SlowDNS
-#	Finalized: Firenet Developer
+# Installing SlowDNS (DNSTT)
+# Finalized: Firenet Developer (rewritten/clean)
 #====================================================
+install_slowdns() {
+  clear
+  echo "Installing dns..."
 
-install_slowdns (){
-echo "Installing dns..."
-{
-dnsresolverName="Cloudflare (1.1.1.1)"
-dnsresolverType="udp"
-dnsresolver="1.1.1.1:53"
+  {
+    # --- resolver settings ---
+    local dnsresolverName="Cloudflare (1.1.1.1)"
+    local dnsresolverType="udp"
+    local dnsresolver="1.1.1.1:53"
 
-# Config Ssh
-sed -i 's/#AllowTcpForwarding yes/AllowTcpForwarding yes/g' /etc/ssh/sshd_config
+    # --- sanity: need DOMAIN + NS set by autodns ---
+    if [ -z "${DOMAIN:-}" ] || [ -z "${NS:-}" ]; then
+      echo "❌ DOMAIN or NS is empty. Make sure autodns created /root/subdomain and /root/ns.txt"
+      exit 1
+    fi
 
-# SET DNSTT
-export DNSDIR=/etc/.dnsquest
-export DNSCONFIG=/root/.dns
-mkdir -m 777 $DNSDIR
-mkdir -m 777 $DNSCONFIG
+    # --- SSH: enable TCP forwarding ---
+    sed -i 's/^[#[:space:]]*AllowTcpForwarding[[:space:]].*/AllowTcpForwarding yes/' /etc/ssh/sshd_config || true
+    systemctl restart ssh >/dev/null 2>&1 || systemctl restart sshd >/dev/null 2>&1 || service ssh restart >/dev/null 2>&1 || true
 
-# BUILD DNSTT SERVER
-mkdir -p "$DNSDIR/dnstt/dnstt-server" "$DNSDIR/dnstt/dnstt-client"
+    # --- SET DNSTT paths ---
+    export DNSDIR="/etc/.dnsquest"
+    export DNSCONFIG="/root/.dns"
 
-cd "$DNSDIR/dnstt/dnstt-server" || exit 1
-wget -q -O dnstt-server "https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/slowdns/dnstt-server"
-chmod +x dnstt-server
+    mkdir -p "$DNSDIR" "$DNSCONFIG"
+    chmod 777 "$DNSDIR" "$DNSCONFIG" || true
 
-cd "$DNSDIR/dnstt/dnstt-client" || exit 1
-wget -q -O dnstt-client "https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/slowdns/dnstt-client"
-chmod +x dnstt-client
+    # --- Build directories ---
+    mkdir -p "$DNSDIR/dnstt/dnstt-server" "$DNSDIR/dnstt/dnstt-client"
 
-cd "$DNSDIR/dnstt/dnstt-server" || exit 1
-./dnstt-server -gen-key -privkey-file server.key -pubkey-file server.pub
+    # --- Download dnstt binaries ---
+    cd "$DNSDIR/dnstt/dnstt-server" || exit 1
+    wget -q -O dnstt-server "https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/slowdns/dnstt-server"
+    chmod +x dnstt-server
 
-cp server.key server.pub "$DNSCONFIG/"
-cp "$DNSDIR/dnstt/dnstt-server/dnstt-server" "$DNSDIR/"
-cp "$DNSDIR/dnstt/dnstt-client/dnstt-client" "$DNSDIR/"
+    cd "$DNSDIR/dnstt/dnstt-client" || exit 1
+    wget -q -O dnstt-client "https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/slowdns/dnstt-client"
+    chmod +x dnstt-client
 
-#Source
-echo "
-hostname=$DOMAIN
-domain=$NS
-privkey=`cat /root/.dns/server.key`
-pubkey=`cat /root/.dns/server.pub`
+    # --- Generate keys ---
+    cd "$DNSDIR/dnstt/dnstt-server" || exit 1
+    ./dnstt-server -gen-key -privkey-file server.key -pubkey-file server.pub
+
+    # --- Copy keys + binaries to standard locations ---
+    cp -f server.key server.pub "$DNSCONFIG/"
+    cp -f "$DNSDIR/dnstt/dnstt-server/dnstt-server" "$DNSDIR/"
+    cp -f "$DNSDIR/dnstt/dnstt-client/dnstt-client" "$DNSDIR/"
+
+    # --- Write config cleanly (no duplicates) ---
+    local secretkey="server"
+    cat > "$DNSCONFIG/config" <<EOF
+hostname=${DOMAIN}
+domain=${NS}
+privkey=$(cat /root/.dns/server.key)
+pubkey=$(cat /root/.dns/server.pub)
 os=debian
-dnsresolvertype=$dnsresolverType
-dnsresolver=$dnsresolver" >> $DNSCONFIG/config
-secretkey='server'
+dnsresolvertype=${dnsresolverType}
+dnsresolver=${dnsresolver}
+EOF
 
-#API Details
-VPN_Owner='DexterEskalarte';
+    # --- Optional info file (same as your style) ---
+    mkdir -p /root/.web
+    cat > "/root/.web/${secretkey}.txt" <<EOF
+Hi! this is your server information, Happy Surfing!
 
-echo "Hi! this is your server information, Happy Surfing!
-
-IP : $server_ip
-Hostname: $DOMAIN
-
------------------------
-SSH DETAILS
------------------------
-SSH : 22
-SSH SSL : 445
-DROPBEAR : 442
-DROPBEAR SSL : 446
-
------------------------
-PROXY DETAILS
------------------------
-SQUID : 8080
-HTTP/SOCKS : 80, 8000, 8001, 8002
+IP : ${server_ip:-$(curl -s ipinfo.io/ip 2>/dev/null || echo '')}
+Hostname: ${DOMAIN}
 
 -----------------------
 SLOWDNS DETAILS
 -----------------------
-DNS URL : $NS
+DNS URL : ${NS}
 SSH via DNS : 442
-DNS RESOLVER : $dnsresolverName
+DNS RESOLVER : ${dnsresolverName}
 DNS PUBLIC KEY : $(cat /root/.dns/server.pub)
 
------------------------
+EOF
 
-FB Page : https://web.facebook.com
-Whatsapp Contact: +639709310250
-
-" >> /root/.web/$secretkey.txt
-
-#wget -O /root/.dns/dig.sh "firenetvpn.net/files/repo/dig.sh"
-#chmod +x /root/.dns/dig.sh
-#sed -i "s|DOMAIN_LENZ|$NS|g" /root/.ports
-#sed -i "s|HOSTNAME_LENZ|$DOMAIN|g" /root/.ports
-
-#install client-sldns.service
-cat > /etc/systemd/system/client-sldns.service << END
+    # --- systemd services ---
+    cat > /etc/systemd/system/client-sldns.service <<EOF
 [Unit]
 Description=Client SlowDNS By HideSSH
 Documentation=https://hidessh.com
@@ -764,15 +754,14 @@ User=root
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
-ExecStart=/etc/.dnsquest/dnstt-client -udp 1.1.1.1:53 --pubkey-file /root/.dns/server.pub $NS 127.0.0.1:2222
+ExecStart=${DNSDIR}/dnstt-client -udp ${dnsresolver} --pubkey-file ${DNSCONFIG}/server.pub ${NS} 127.0.0.1:2222
 Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
-END
+EOF
 
-#install server-sldns.service
-cat > /etc/systemd/system/server-sldns.service << END
+    cat > /etc/systemd/system/server-sldns.service <<EOF
 [Unit]
 Description=Server SlowDNS By HideSSH
 Documentation=https://hidessh.com
@@ -784,34 +773,28 @@ User=root
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
-ExecStart=/etc/.dnsquest/dnstt-server -udp :5300 -privkey-file /root/.dns/server.key $NS 127.0.0.1:442
+ExecStart=${DNSDIR}/dnstt-server -udp :5300 -privkey-file ${DNSCONFIG}/server.key ${NS} 127.0.0.1:442
 Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
-END
+EOF
 
+    chmod 644 /etc/systemd/system/client-sldns.service /etc/systemd/system/server-sldns.service
 
-#permission service slowdns
-chmod +x /etc/systemd/system/client-sldns.service
-chmod +x /etc/systemd/system/server-sldns.service
+    systemctl daemon-reload
+    systemctl enable --now client-sldns.service server-sldns.service
 
+    # --- UDP buffers (kept from your script) ---
+    sysctl -w net.core.rmem_max=16777216 >/dev/null 2>&1 || true
+    sysctl -w net.core.wmem_max=16777216 >/dev/null 2>&1 || true
 
-systemctl daemon-reload
-systemctl enable client-sldns
-systemctl enable server-sldns
-systemctl start client-sldns
-systemctl start server-sldns
+    # --- badvpn (kept from your script) ---
+    wget -q -O /usr/bin/badvpn-udpgw "https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/badvpn/badvpn-udpgw64"
+    chmod +x /usr/bin/badvpn-udpgw
 
-} &>/dev/null
-}
-
-sysctl -w net.core.rmem_max=16777216
-sysctl -w net.core.wmem_max=16777216
-
-wget -O /usr/bin/badvpn-udpgw "https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/badvpn/badvpn-udpgw64"
-chmod +x /usr/bin/badvpn-udpgw
-} &>/dev/null
+    echo "✅ SlowDNS installed: server UDP 5300, client forward 2222, SSH via DNS 442"
+  } &>/dev/null
 }
 
 installBBR() {
@@ -950,6 +933,7 @@ install_firewall_kvm
 install_stunnel
 install_rclocal
 start_service
+
 
 
 
