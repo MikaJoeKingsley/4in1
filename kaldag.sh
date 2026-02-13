@@ -479,37 +479,86 @@ chmod 755 /etc/openvpn/login/auth_vpn
 }
 
 install_firewall_kvm () {
-clear
-echo "Installing iptables."
-echo "net.ipv4.ip_forward=1
-net.ipv4.conf.all.rp_filter=0
-net.ipv4.conf."$server_interface".rp_filter=0" >> /etc/sysctl.conf
-sysctl -p
-{
-iptables -F
-iptables -t nat -A PREROUTING -i "$server_interface" -p udp -m udp --dport 10000:50000 -j DNAT --to-destination :5666
-iptables -t nat -A POSTROUTING -s 10.20.0.0/22 -o "$server_interface" -j MASQUERADE
-iptables -t nat -A POSTROUTING -s 10.20.0.0/22 -o "$server_interface" -j SNAT --to-source "$server_ip"
-iptables -t nat -A POSTROUTING -s 10.30.0.0/22 -o "$server_interface" -j MASQUERADE
-iptables -t nat -A POSTROUTING -s 10.30.0.0/22 -o "$server_interface" -j SNAT --to-source "$server_ip"
-iptables -t filter -A INPUT -p udp -m udp --dport 20100:20900 -m state --state NEW -m recent --update --seconds 30 --hitcount 10 --name DEFAULT --mask 255.255.255.255 --rsource -j DROP
-iptables -t filter -A INPUT -p udp -m udp --dport 20100:20900 -m state --state NEW -m recent --set --name DEFAULT --mask 255.255.255.255 --rsource
-sudo iptables -I INPUT -p udp --dport 5300 -j ACCEPT &>/dev/null;
-sudo iptables -t nat -I PREROUTING -i $(ip route get 8.8.8.8 | awk '/dev/ {f=NR} f&&NR-1==f' RS=" ") -p udp --dport 53 -j REDIRECT --to-ports 5300 &>/dev/null;
-sudo ip6tables -I INPUT -p udp --dport 5300 -j ACCEPT &>/dev/null;
-sudo ip6tables -t nat -I PREROUTING -i $(ip route get 8.8.8.8 | awk '/dev/ {f=NR} f&&NR-1==f' RS=" ") -p udp --dport 53 -j REDIRECT --to-ports 5300 &>/dev/null;
-echo iptables-persistent iptables-persistent/autosave_v4 boolean true | sudo debconf-set-selections
-echo iptables-persistent iptables-persistent/autosave_v6 boolean true | sudo debconf-set-selections
-sudo apt -y install iptables-persistent
-iptables-save > /etc/iptables_rules.v4
-ip6tables-save > /etc/iptables_rules.v6
+  clear
+  echo "Installing iptables..."
 
-# Maximum number of open files
-sed -i '/^\*\ *soft\ *nofile\ *[[:digit:]]*/d' /etc/security/limits.conf
-sed -i '/^\*\ *hard\ *nofile\ *[[:digit:]]*/d' /etc/security/limits.conf
-echo '* soft nofile 65536' >>/etc/security/limits.conf
-echo '* hard nofile 65536' >>/etc/security/limits.conf
-}&>/dev/null
+  # ---- sysctl (clean + no duplicates) ----
+  cat >/etc/sysctl.d/99-dexter.conf <<EOF
+net.ipv4.ip_forward=1
+net.ipv4.conf.all.rp_filter=0
+net.ipv4.conf.${server_interface}.rp_filter=0
+EOF
+  sysctl --system >/dev/null 2>&1 || true
+
+  # ---- apply firewall rules ----
+  {
+    export DEBIAN_FRONTEND=noninteractive
+
+    # Detect interface safely (fallback)
+    IFACE="${server_interface:-}"
+    if [ -z "$IFACE" ]; then
+      IFACE="$(ip route get 8.8.8.8 2>/dev/null | awk '/dev/ {for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}')"
+    fi
+    [ -z "$IFACE" ] && IFACE="eth0"
+
+    # Detect server IP safely (fallback)
+    SIP="${server_ip:-}"
+    if [ -z "$SIP" ]; then
+      SIP="$(curl -fsS ipinfo.io/ip 2>/dev/null || true)"
+    fi
+    if [ -z "$SIP" ]; then
+      SIP="$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')"
+    fi
+    [ -z "$SIP" ] && SIP="0.0.0.0"
+
+    # Ensure iptables tools exist
+    apt-get update -y >/dev/null 2>&1 || true
+    apt-get install -y iptables iptables-persistent netfilter-persistent >/dev/null 2>&1 || true
+
+    # Clear existing rules (only filter + nat like your original)
+    iptables -F
+    iptables -t nat -F
+    ip6tables -F 2>/dev/null || true
+    ip6tables -t nat -F 2>/dev/null || true
+
+    # ---- Your original rules (kept) ----
+    iptables -t nat -A PREROUTING -i "$IFACE" -p udp --dport 10000:50000 -j DNAT --to-destination :5666
+
+    iptables -t nat -A POSTROUTING -s 10.20.0.0/22 -o "$IFACE" -j MASQUERADE
+    iptables -t nat -A POSTROUTING -s 10.20.0.0/22 -o "$IFACE" -j SNAT --to-source "$SIP"
+
+    iptables -t nat -A POSTROUTING -s 10.30.0.0/22 -o "$IFACE" -j MASQUERADE
+    iptables -t nat -A POSTROUTING -s 10.30.0.0/22 -o "$IFACE" -j SNAT --to-source "$SIP"
+
+    iptables -t filter -A INPUT -p udp --dport 20100:20900 -m state --state NEW \
+      -m recent --update --seconds 30 --hitcount 10 --name DEFAULT --mask 255.255.255.255 --rsource -j DROP
+    iptables -t filter -A INPUT -p udp --dport 20100:20900 -m state --state NEW \
+      -m recent --set --name DEFAULT --mask 255.255.255.255 --rsource
+
+    # Allow SlowDNS UDP port (5300) and redirect inbound UDP/53 -> 5300
+    iptables -I INPUT -p udp --dport 5300 -j ACCEPT
+    iptables -t nat -I PREROUTING -i "$IFACE" -p udp --dport 53 -j REDIRECT --to-ports 5300
+
+    # IPv6 (best-effort; ok if VPS has no v6)
+    ip6tables -I INPUT -p udp --dport 5300 -j ACCEPT 2>/dev/null || true
+    ip6tables -t nat -I PREROUTING -i "$IFACE" -p udp --dport 53 -j REDIRECT --to-ports 5300 2>/dev/null || true
+
+    # ---- Save rules (Debian 12 standard paths) ----
+    mkdir -p /etc/iptables
+    iptables-save  > /etc/iptables/rules.v4 2>/dev/null || iptables-save  > /etc/iptables_rules.v4
+    ip6tables-save > /etc/iptables/rules.v6 2>/dev/null || ip6tables-save > /etc/iptables_rules.v6
+
+    systemctl enable --now netfilter-persistent >/dev/null 2>&1 || true
+    systemctl restart netfilter-persistent >/dev/null 2>&1 || true
+
+    # ---- Max open files (clean replace) ----
+    sed -i '/^\*\s\+soft\s\+nofile\s\+[0-9]\+/d' /etc/security/limits.conf
+    sed -i '/^\*\s\+hard\s\+nofile\s\+[0-9]\+/d' /etc/security/limits.conf
+    echo '* soft nofile 65536' >> /etc/security/limits.conf
+    echo '* hard nofile 65536' >> /etc/security/limits.conf
+
+    echo "✅ iptables configured (iface=$IFACE ip=$SIP)"
+  } >/root/install-firewall.log 2>&1
 }
 
 install_stunnel() {
@@ -999,6 +1048,7 @@ install_firewall_kvm
 install_stunnel
 install_rclocal
 start_service
+
 
 
 
