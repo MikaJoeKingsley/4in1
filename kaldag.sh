@@ -430,7 +430,7 @@ chmod 755 /etc/openvpn/login/connect.sh
 chmod 755 /etc/openvpn/login/disconnect.sh
 chmod 755 /etc/openvpn/login/config.sh
 chmod 755 /etc/openvpn/login/auth_vpn
-chmod 755 /etc/hysteria/
+chmod 755 /etc/hysteria/.auth.sh
 }&>/dev/null
 }
 
@@ -850,11 +850,15 @@ install_rclocal(){
     systemctl restart apache2
     
     sudo systemctl restart stunnel4
+    sudo systemctl start dexter.service
     sudo systemctl restart hysteria-server
-    sudo systemctl enable openvpn@server.service
-    sudo systemctl start openvpn@server.service
-    sudo systemctl enable openvpn@server2.service
-    sudo systemctl start openvpn@server2.service    
+    if systemctl list-unit-files | grep -q '^openvpn-server@'; then
+  systemctl enable --now openvpn-server@server.service
+  systemctl enable --now openvpn-server@server2.service
+else
+  systemctl enable --now openvpn@server.service
+  systemctl enable --now openvpn@server2.service
+fi 
     
     echo "[Unit]
 Description=dexter service
@@ -876,10 +880,12 @@ sysctl -p
 service stunnel4 restart
 systemctl restart openvpn@server.service
 systemctl restart openvpn@server2.service
-screen -dmS socks python /etc/socks.py 80
-screen -dmS socks python /etc/socks-ssh.py 8000
-screen -dmS socks python /etc/socks-ws-ssh.py 8001
-screen -dmS socks python /etc/socks-ws-ssl.py 8002
+systemctl enable dexter.service
+systemctl start dexter.service
+screen -dmS socks python3 /etc/socks.py 80
+screen -dmS socks python3 /etc/socks-ssh.py 8000
+screen -dmS socks python3 /etc/socks-ws-ssh.py 8001
+screen -dmS socks python3 /etc/socks-ws-ssl.py 8002
 ps x | grep 'udpvpn' | grep -v 'grep' || screen -dmS udpvpn /usr/bin/badvpn-udpgw --listen-addr 127.0.0.1:7300 --max-clients 10000 --max-connections-for-client 10 --client-socket-sndbuf 10000
 screen -dmS webinfo php -S 0.0.0.0:5623 -t /root/.web/
 bash /etc/.monitor aio
@@ -889,7 +895,7 @@ sudo chmod +x /etc/rc.local
 systemctl daemon-reload
 systemctl enable hysteria-server.service
 systemctl restart hysteria-server.service
-sudo systemctl enable dexter
+systemctl list-unit-files | grep openvpn
 sudo systemctl start dexter.service
     
 echo "Made with love by: MediatekVpn Developer... " >> /root/.web/index.php
@@ -948,5 +954,6 @@ install_firewall_kvm
 install_stunnel
 install_rclocal
 start_service
+
 
 
