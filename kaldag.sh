@@ -3,8 +3,6 @@
 PORT_TCP='1194';
 PORT_UDP='110';
 PORT_SSL='443';
-OBFS='privatehub';
-HYSTERIA_TYPE='default';
 API_KEY='DexterEskalarte';
 
 apt update
@@ -153,10 +151,6 @@ HTML
     else
       service squid restart
     fi
-
-    # ---- OPTIONAL: these are NOT part of Squid itself ----
-    # Your old function also downloaded "socks/websocket/monitor/hysteria" scripts.
-    # Keep it OPTIONAL so Squid stays portable everywhere.
     if [ "${INSTALL_EXTRA_SOCKS:-0}" = "1" ]; then
       apt-get install -y dos2unix wget python3 screen >/dev/null 2>&1 || true
 
@@ -178,8 +172,6 @@ HTML
 
       wget -q 'https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/repo/monitorz' -O /etc/.monitor
       wget -q 'https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/websocket/ws' -O /etc/.ws
-      wget -q 'https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/repo/hysteria' -O /etc/.hysteria
-      chmod +x /etc/.monitor /etc/.ws /etc/.hysteria
     fi
 
     echo "✅ Squid installed."
@@ -474,8 +466,6 @@ chmod 755 /etc/openvpn/login/connect.sh
 chmod 755 /etc/openvpn/login/disconnect.sh
 chmod 755 /etc/openvpn/login/config.sh
 chmod 755 /etc/openvpn/login/auth_vpn
-[ -f /etc/hysteria/.auth.sh ] && chmod 755 /etc/hysteria/.auth.sh
-}&>/dev/null
 }
 
 install_firewall_kvm () {
@@ -740,13 +730,6 @@ DROPBEAR : 442
 DROPBEAR SSL : 446
 
 -----------------------
-HYSTERIA DETAILS
------------------------
-HYSTERIA UDP : 5666, 20000 - 50000
-OBFS: $OBFS
-AUTH_STR: username:password
-
------------------------
 PROXY DETAILS
 -----------------------
 SQUID : 8080
@@ -827,75 +810,6 @@ systemctl start server-sldns
 } &>/dev/null
 }
 
-#====================================================
-#	Installing Hysteria UDP
-#	Finalized: Firenet Developer
-#====================================================
-
-install_hysteria(){
-clear
-echo 'Installing hysteria.'
-{
-wget -N --no-check-certificate -q -O ~/install_server.sh https://raw.githubusercontent.com/MikaJoeKingsley/4in1/refs/heads/main/install_server.sh; chmod +x ~/install_server.sh; ./install_server.sh --version v1.3.5
-
-rm -f /etc/hysteria/config.json
-
-echo '{
-  "listen": ":5666",
-  "cert": "/etc/openvpn/easy-rsa/keys/server.crt",
-  "key": "/etc/openvpn/easy-rsa/keys/server.key",
-  "up_mbps": 100,
-  "down_mbps": 100,
-  "disable_udp": false,
-  "obfs": "mediatekvpn",
-  "auth": {
-    "mode": "external",
-    "config": {
-    "cmd": "./.auth.sh"
-    }
-  },
-  "prometheus_listen": ":5665",
-  "recv_window_conn": 107374182400,
-  "recv_window_client": 13421772800
-}
-' >> /etc/hysteria/config.json
-
-sed -i "s|mediatekvpn|$OBFS|g" /etc/hysteria/config.json
-
-cat <<"EOM" >/etc/hysteria/.auth.sh
-#!/bin/bash
-# Hysteria auth via Linux users (PAM)
-
-if [ $# -ne 4 ]; then
-  exit 1
-fi
-
-AUTH="$2"
-USERNAME="${AUTH%%:*}"
-PASSWORD="${AUTH#*:}"
-
-export HUSER="$USERNAME"
-export HPASS="$PASSWORD"
-
-python3 - <<'PY'
-import os, sys
-import pam
-
-u = os.environ.get("HUSER","")
-p = os.environ.get("HPASS","")
-
-if not u or not p:
-    sys.exit(1)
-
-pamh = pam.pam()
-ok = pamh.authenticate(u, p, service='login')
-sys.exit(0 if ok else 1)
-PY
-EOM
-
-chmod 755 /etc/hysteria/config.json
-chmod 755 /etc/hysteria/.auth.sh
-
 sysctl -w net.core.rmem_max=16777216
 sysctl -w net.core.wmem_max=16777216
 
@@ -929,9 +843,6 @@ install_rclocal() {
       sed -i 's/Listen 80/Listen 81/g' /etc/apache2/ports.conf 2>/dev/null || true
       systemctl restart apache2 2>/dev/null || true
     fi
-
-    systemctl restart stunnel4 2>/dev/null || true
-    systemctl restart hysteria-server 2>/dev/null || true
 
     # Detect correct OpenVPN unit prefix (for use NOW, not only in rc.local)
     OPENVPN_UNIT_PREFIX="openvpn@"
@@ -992,15 +903,12 @@ UNIT
     systemctl enable --now ${OPENVPN_UNIT_PREFIX}server.service 2>/dev/null || true
     systemctl enable --now ${OPENVPN_UNIT_PREFIX}server2.service 2>/dev/null || true
 
-    systemctl enable --now hysteria-server.service 2>/dev/null || true
-
     # Write ports file cleanly
     cat > /root/.ports <<EOF
 tcp_port=$PORT_TCP
 udp_port=$PORT_UDP
 socket_port=80
 squid_port=8080
-hysteria_port=5666
 ssh_port=22
 dropbear_port=442
 slowdns_port=2222
@@ -1018,7 +926,6 @@ echo 'Starting..'
 
 sudo crontab -l | { echo "* * * * * pgrep -x stunnel4 >/dev/null && echo 'GOOD' || /etc/init.d/stunnel4 restart
 * * * * * /bin/bash /etc/.ws >/dev/null 2>&1
-* * * * * /bin/bash /etc/.hysteria >/dev/null 2>&1
 * * * * * /bin/bash /etc/.monitor aio >/dev/null 2>&1"; } | crontab -
 sudo systemctl restart cron
 } &>/dev/null
@@ -1039,7 +946,6 @@ serverVersion=`awk '/^VERSION_ID=/' /etc/*-release | awk -F'=' '{ print tolower(
 
 #install_sudo
 install_require  
-install_hysteria
 installBBR
 install_squid
 install_openvpn
@@ -1048,6 +954,7 @@ install_firewall_kvm
 install_stunnel
 install_rclocal
 start_service
+
 
 
 
